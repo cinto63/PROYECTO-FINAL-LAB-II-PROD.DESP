@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
+import Login from './components/Login';
+import Dashboard from './components/Dashboard';
 
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [user, setUser] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
   const [backendStatus, setBackendStatus] = useState({
     loading: true,
     connected: false,
     dbConnected: false,
     message: '',
-    dbTime: '',
     error: ''
   });
 
   const checkHealth = async () => {
-    setBackendStatus(prev => ({ ...prev, loading: true, error: '' }));
     try {
       const response = await fetch('http://localhost:5000/api/health');
       if (response.ok) {
@@ -21,17 +24,14 @@ function App() {
           connected: true,
           dbConnected: data.status === 'OK',
           message: data.message,
-          dbTime: data.dbTime || '',
           error: ''
         });
       } else {
-        const data = await response.json().catch(() => ({}));
         setBackendStatus({
           loading: false,
           connected: true,
           dbConnected: false,
-          message: data.message || 'Error en la API',
-          dbTime: '',
+          message: 'Error en la respuesta de salud',
           error: `HTTP error! status: ${response.status}`
         });
       }
@@ -40,174 +40,98 @@ function App() {
         loading: false,
         connected: false,
         dbConnected: false,
-        message: 'No se pudo conectar al servidor de desarrollo (puerto 5000).',
-        dbTime: '',
+        message: 'No se pudo conectar al servidor.',
         error: err.message
       });
     }
   };
 
+  const verifySession = async (savedToken) => {
+    if (!savedToken) {
+      setLoadingSession(false);
+      return;
+    }
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${savedToken}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+        setToken(savedToken);
+      } else {
+        // Token expiró o es inválido
+        handleLogout();
+      }
+    } catch (err) {
+      console.error('Error verificando sesión:', err);
+      // No cerrar sesión por fallos temporales de red
+    } finally {
+      setLoadingSession(false);
+    }
+  };
+
   useEffect(() => {
     checkHealth();
+    verifySession(token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleLoginSuccess = (newToken, newUser) => {
+    localStorage.setItem('token', newToken);
+    setToken(newToken);
+    setUser(newUser);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setToken('');
+    setUser(null);
+  };
+
+  // Si se está verificando el token de sesión guardado al inicio
+  if (loadingSession && token) {
+    return (
+      <div className="min-h-screen bg-[#070d0a] text-emerald-400 flex flex-col justify-center items-center font-sans space-y-4">
+        <svg className="animate-spin h-8 w-8 text-emerald-500" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+        <span className="text-xs">Sincronizando credenciales de seguridad...</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-6 selection:bg-purple-500 selection:text-white font-sans">
-      {/* Header */}
-      <header className="w-full max-w-5xl flex items-center justify-between py-6 border-b border-slate-800">
-        <div className="flex items-center space-x-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
-            <span className="text-xl font-bold text-white">SF</span>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">Sistema Formal</h1>
-            <p className="text-xs text-slate-500">Panel de Control & Desarrollo</p>
-          </div>
+    <>
+      {/* Indicador de Estado del Servidor si hay algún fallo */}
+      {!backendStatus.loading && (!backendStatus.connected || !backendStatus.dbConnected) && (
+        <div className="bg-rose-950/90 border-b border-rose-900 text-rose-300 px-4 py-2.5 text-center text-xs font-semibold z-50 sticky top-0 flex justify-center items-center space-x-2 backdrop-blur-md">
+          <svg className="w-4 h-4 text-rose-400 animate-pulse shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>
+            {!backendStatus.connected 
+              ? 'Atención: El servidor backend (puerto 5000) no responde. Asegúrate de iniciarlo con "npm run dev".' 
+              : 'Atención: Servidor conectado, pero falló la conexión con la base de datos PostgreSQL.'}
+          </span>
+          <button 
+            onClick={checkHealth}
+            className="px-2.5 py-0.5 rounded bg-rose-900 hover:bg-rose-800 text-white text-[10px] transition-all ml-2 active:scale-95 cursor-pointer font-bold border border-rose-800"
+          >
+            Reintentar
+          </button>
         </div>
-        <div className="flex items-center space-x-2">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="text-xs text-slate-400 font-medium">Entorno Local Listo</span>
-        </div>
-      </header>
+      )}
 
-      {/* Main Content */}
-      <main className="w-full max-w-5xl flex-1 flex flex-col justify-center my-12">
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-indigo-300 to-white">
-            Tu Entorno de Desarrollo está Preparado
-          </h2>
-          <p className="text-lg text-slate-400 leading-relaxed">
-            Hemos configurado e instalado React + Tailwind CSS v4 para el Frontend, y Express + PostgreSQL para el Backend. ¡Ya puedes empezar a codificar el Sistema Formal!
-          </p>
-        </div>
-
-        {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-          
-          {/* Card: Status Conexión */}
-          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 backdrop-blur-xl flex flex-col justify-between hover:border-slate-700/80 transition-all duration-300 shadow-xl">
-            <div>
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-semibold text-slate-200">Servicios Activos</h3>
-                <button 
-                  onClick={checkHealth}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 text-xs text-slate-300 hover:bg-slate-700 hover:text-white transition-all active:scale-95 cursor-pointer font-medium"
-                >
-                  Recomprobar
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {/* Express API Status */}
-                <div className="flex items-center justify-between p-4 bg-slate-900/80 border border-slate-800/80 rounded-2xl">
-                  <div className="flex items-center space-x-3">
-                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${backendStatus.connected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-300">Backend (Express)</p>
-                      <p className="text-xs text-slate-500">Puerto 5000</p>
-                    </div>
-                  </div>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${backendStatus.connected ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
-                    {backendStatus.loading ? 'Cargando...' : (backendStatus.connected ? 'En línea' : 'Desconectado')}
-                  </span>
-                </div>
-
-                {/* PostgreSQL Database Status */}
-                <div className="flex items-center justify-between p-4 bg-slate-900/80 border border-slate-800/80 rounded-2xl">
-                  <div className="flex items-center space-x-3">
-                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${backendStatus.dbConnected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.58 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.58 4 8 4s8-1.79 8-4M4 7c0-2.21 3.58-4 8-4s8 1.79 8 4m0 5c0 2.21-3.58 4-8 4s-8-1.79-8-4" />
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-300">Base de Datos (PostgreSQL)</p>
-                      <p className="text-xs text-slate-500">{backendStatus.dbConnected ? 'Conectado mediante Pool' : 'Comprobar .env / servicio'}</p>
-                    </div>
-                  </div>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${backendStatus.dbConnected ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
-                    {backendStatus.loading ? 'Cargando...' : (backendStatus.dbConnected ? 'Conectado' : 'Sin conexión')}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8 pt-6 border-t border-slate-800/60">
-              {backendStatus.loading ? (
-                <p className="text-sm text-slate-400">Verificando conexión con el servidor...</p>
-              ) : backendStatus.connected ? (
-                <div className="space-y-1">
-                  <p className="text-sm text-emerald-400 font-medium font-semibold">✓ {backendStatus.message}</p>
-                  {backendStatus.dbTime && (
-                    <p className="text-xs text-slate-500">Hora BD: {new Date(backendStatus.dbTime).toLocaleString()}</p>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-sm text-rose-400 font-medium">✗ Backend desconectado</p>
-                  <p className="text-xs text-slate-500 leading-normal">
-                    Inicia el servidor ejecutando <code className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-xs">npm run dev</code> dentro de la carpeta <code className="text-purple-400">backend/</code>.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Card: Próximos pasos en el desarrollo */}
-          <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 backdrop-blur-xl flex flex-col justify-between hover:border-slate-700/80 transition-all duration-300 shadow-xl">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-200 mb-6">Guía Rápida para Desarrollar</h3>
-              
-              <ul className="space-y-4">
-                <li className="flex items-start space-x-3 text-sm text-slate-300">
-                  <span className="mt-1 h-5 w-5 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center text-xs font-bold shrink-0">1</span>
-                  <div>
-                    <strong className="text-slate-200 block">Levantar localmente:</strong>
-                    Abre terminales separadas para correr el backend y el frontend mediante los comandos de inicio en cada carpeta.
-                  </div>
-                </li>
-                <li className="flex items-start space-x-3 text-sm text-slate-300">
-                  <span className="mt-1 h-5 w-5 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center text-xs font-bold shrink-0">2</span>
-                  <div>
-                    <strong className="text-slate-200 block">Vincular a GitHub:</strong>
-                    Ejecuta los comandos de Git descritos en el archivo <code className="text-purple-400">README.md</code> para subir tu repositorio.
-                  </div>
-                </li>
-                <li className="flex items-start space-x-3 text-sm text-slate-300">
-                  <span className="mt-1 h-5 w-5 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center text-xs font-bold shrink-0">3</span>
-                  <div>
-                    <strong className="text-slate-200 block">Despliegue a Producción:</strong>
-                    Usa Railway para provisionar PostgreSQL y Express, y conecta Vercel a la carpeta <code className="text-purple-400">frontend/</code>.
-                  </div>
-                </li>
-              </ul>
-            </div>
-
-            <div className="mt-8 pt-6 border-t border-slate-800/60 flex justify-between items-center text-xs text-slate-500">
-              <span>Estructura de archivos configurada</span>
-              <a 
-                href="file:///c:/Users/Lab2LT-1/Desktop/PROYECTO%20FINAL-LAB-II/README.md"
-                target="_blank"
-                rel="noreferrer"
-                className="text-purple-400 hover:underline hover:text-purple-300 transition-colors"
-              >
-                Ver README.md →
-              </a>
-            </div>
-          </div>
-
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="w-full max-w-5xl py-6 border-t border-slate-800/60 text-center text-xs text-slate-600">
-        <p>Sistema Formal - Monorepositorio React (Vite) + Tailwind CSS v4 & Express + PostgreSQL</p>
-      </footer>
-    </div>
+      {user ? (
+        <Dashboard user={user} token={token} onLogout={handleLogout} />
+      ) : (
+        <Login onLoginSuccess={handleLoginSuccess} />
+      )}
+    </>
   );
 }
 
